@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar Studio</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    * { font-family: 'Space Grotesk', sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+    .glow { box-shadow: 0 0 40px rgba(99, 102, 241, 0.3); }
+    @keyframes pulse-border {
+      0%, 100% { border-color: rgba(99, 102, 241, 0.5); }
+      50% { border-color: rgba(99, 102, 241, 1); }
+    }
+    .recording { animation: pulse-border 1s infinite; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  
+  <script type="text/babel">
+    const { useState, useRef, useEffect } = React;
+
+    const AvatarStudio = () => {
+      const [activeTab, setActiveTab] = useState('create');
+      const [avatarConfig, setAvatarConfig] = useState({
+        face: 'round',
+        skinTone: '#F5D0C5',
+        hairStyle: 'short',
+        hairColor: '#2C1810',
+        eyeColor: '#4A6741',
+        expression: 'neutral',
+        accessories: [],
+        background: '#1a1a2e'
+      });
+      const [script, setScript] = useState('');
+      const [isAnimating, setIsAnimating] = useState(false);
+      const [isSpeaking, setIsSpeaking] = useState(false);
+      const [generatedVideos, setGeneratedVideos] = useState([]);
+      const canvasRef = useRef(null);
+      const videoCanvasRef = useRef(null);
+      const mediaRecorderRef = useRef(null);
+      const chunksRef = useRef([]);
+
+      const faceShapes = ['round', 'oval', 'square', 'heart'];
+      const hairStyles = ['short', 'long', 'curly', 'bald', 'ponytail', 'mohawk'];
+      const expressions = ['neutral', 'happy', 'surprised', 'thinking', 'wink'];
+      const accessoryOptions = ['glasses', 'earrings', 'hat', 'beard'];
+      const skinTones = ['#FFDFC4', '#F0C8A8', '#D4A574', '#8D5524', '#5C3317', '#F5D0C5'];
+      const hairColors = ['#2C1810', '#8B4513', '#FFD700', '#DC143C', '#4169E1', '#2F4F4F', '#FFF8DC'];
+      const eyeColors = ['#4A6741', '#634E34', '#2E536F', '#3D671D', '#497665', '#1C1C1C'];
+      const backgrounds = ['#1a1a2e', '#16213e', '#0f3460', '#533483', '#e94560', '#1a1a1a', '#2d4059', '#ea5455'];
+
+      const drawAvatar = (ctx, width, height, mouthOpen = 0, blinkAmount = 0) => {
+        const cx = width / 2;
+        const cy = height / 2;
+        const scale = Math.min(width, height) / 300;
+
+        ctx.fillStyle = avatarConfig.background;
+        ctx.fillRect(0, 0, width, height);
+
+        const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, width * 0.7);
+        gradient.addColorStop(0, 'rgba(255,255,255,0.1)');
+        gradient.addColorStop(1, 'rgba(0,0,0,0.3)');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.save();
+        ctx.translate(cx, cy + 20 * scale);
+        
+        ctx.fillStyle = avatarConfig.skinTone;
+        ctx.beginPath();
+        ctx.moveTo(-25 * scale, 50 * scale);
+        ctx.lineTo(-20 * scale, 100 * scale);
+        ctx.lineTo(20 * scale, 100 * scale);
+        ctx.lineTo(25 * scale, 50 * scale);
+        ctx.fill();
+
+        ctx.fillStyle = avatarConfig.skinTone;
+        ctx.beginPath();
+        
+        if (avatarConfig.face === 'round') {
+          ctx.arc(0, 0, 80 * scale, 0, Math.PI * 2);
+        } else if (avatarConfig.face === 'oval') {
+          ctx.ellipse(0, 0, 65 * scale, 85 * scale, 0, 0, Math.PI * 2);
+        } else if (avatarConfig.face === 'square') {
+          ctx.roundRect(-70 * scale, -75 * scale, 140 * scale, 150 * scale, 20 * scale);
+        } else if (avatarConfig.face === 'heart') {
+          ctx.moveTo(0, 70 * scale);
+          ctx.bezierCurveTo(-80 * scale, 20 * scale, -80 * scale, -50 * scale, -40 * scale, -70 * scale);
+          ctx.bezierCurveTo(-10 * scale, -90 * scale, 0, -70 * scale, 0, -70 * scale);
+          ctx.bezierCurveTo(0, -70 * scale, 10 * scale, -90 * scale, 40 * scale, -70 * scale);
+          ctx.bezierCurveTo(80 * scale, -50 * scale, 80 * scale, 20 * scale, 0, 70 * scale);
+        }
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(0,0,0,0.05)';
+        ctx.beginPath();
+        ctx.ellipse(0, 20 * scale, 70 * scale, 60 * scale, 0, 0, Math.PI);
+        ctx.fill();
+
+        ctx.fillStyle = avatarConfig.hairColor;
+        
+        if (avatarConfig.hairStyle === 'short') {
+          ctx.beginPath();
+          ctx.ellipse(0, -50 * scale, 75 * scale, 50 * scale, 0, Math.PI, 0);
+          ctx.fill();
+        } else if (avatarConfig.hairStyle === 'long') {
+          ctx.beginPath();
+          ctx.moveTo(-80 * scale, -30 * scale);
+          ctx.bezierCurveTo(-90 * scale, -80 * scale, 90 * scale, -80 * scale, 80 * scale, -30 * scale);
+          ctx.lineTo(85 * scale, 80 * scale);
+          ctx.bezierCurveTo(85 * scale, 100 * scale, -85 * scale, 100 * scale, -85 * scale, 80 * scale);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = avatarConfig.skinTone;
+          ctx.beginPath();
+          ctx.arc(0, 0, 75 * scale, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (avatarConfig.hairStyle === 'curly') {
+          for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI + Math.PI;
+            const x = Math.cos(angle) * 70 * scale;
+            const y = Math.sin(angle) * 70 * scale - 20 * scale;
+            ctx.beginPath();
+            ctx.arc(x, y, 25 * scale, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (avatarConfig.hairStyle === 'ponytail') {
+          ctx.beginPath();
+          ctx.ellipse(0, -50 * scale, 75 * scale, 45 * scale, 0, Math.PI, 0);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.ellipse(60 * scale, -40 * scale, 20 * scale, 60 * scale, 0.5, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (avatarConfig.hairStyle === 'mohawk') {
+          ctx.beginPath();
+          ctx.moveTo(-15 * scale, -80 * scale);
+          ctx.lineTo(0, -130 * scale);
+          ctx.lineTo(15 * scale, -80 * scale);
+          ctx.fill();
+          for (let i = 0; i < 5; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-12 * scale, (-70 + i * 15) * scale);
+            ctx.lineTo(0, (-110 + i * 10) * scale);
+            ctx.lineTo(12 * scale, (-70 + i * 15) * scale);
+            ctx.fill();
+          }
+        }
+
+        const eyeY = -15 * scale;
+        const eyeSpacing = 30 * scale;
+        const eyeHeight = Math.max(2, 18 - blinkAmount * 16) * scale;
+        
+        ctx.fillStyle = '#FFFFFF';
+        ctx.beginPath();
+        ctx.ellipse(-eyeSpacing, eyeY, 18 * scale, eyeHeight, 0, 0, Math.PI * 2);
+        ctx.ellipse(eyeSpacing, eyeY, 18 * scale, eyeHeight, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (blinkAmount < 0.8) {
+          ctx.fillStyle = avatarConfig.eyeColor;
+          ctx.beginPath();
+          ctx.arc(-eyeSpacing, eyeY, 10 * scale, 0, Math.PI * 2);
+          ctx.arc(eyeSpacing, eyeY, 10 * scale, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = '#000000';
+          ctx.beginPath();
+          ctx.arc(-eyeSpacing, eyeY, 5 * scale, 0, Math.PI * 2);
+          ctx.arc(eyeSpacing, eyeY, 5 * scale, 0, Math.PI * 2);
+          ctx.fill();
+
+          ctx.fillStyle = 'rgba(255,255,255,0.8)';
+          ctx.beginPath();
+          ctx.arc(-eyeSpacing - 3 * scale, eyeY - 3 * scale, 3 * scale, 0, Math.PI * 2);
+          ctx.arc(eyeSpacing - 3 * scale, eyeY - 3 * scale, 3 * scale, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        ctx.strokeStyle = avatarConfig.hairColor;
+        ctx.lineWidth = 4 * scale;
+        ctx.lineCap = 'round';
+        
+        let browY = -38 * scale;
+        if (avatarConfig.expression === 'surprised') browY = -45 * scale;
+        if (avatarConfig.expression === 'thinking') {
+          ctx.beginPath();
+          ctx.moveTo(-eyeSpacing - 15 * scale, browY + 5 * scale);
+          ctx.lineTo(-eyeSpacing + 15 * scale, browY);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(eyeSpacing - 15 * scale, browY);
+          ctx.lineTo(eyeSpacing + 15 * scale, browY - 5 * scale);
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(-eyeSpacing - 15 * scale, browY);
+          ctx.lineTo(-eyeSpacing + 15 * scale, browY);
+          ctx.moveTo(eyeSpacing - 15 * scale, browY);
+          ctx.lineTo(eyeSpacing + 15 * scale, browY);
+          ctx.stroke();
+        }
+
+        if (avatarConfig.expression === 'wink') {
+          ctx.strokeStyle = avatarConfig.skinTone;
+          ctx.lineWidth = 20 * scale;
+          ctx.beginPath();
+          ctx.arc(eyeSpacing, eyeY, 18 * scale, 0, Math.PI * 2);
+          ctx.stroke();
+          
+          ctx.strokeStyle = '#000000';
+          ctx.lineWidth = 3 * scale;
+          ctx.beginPath();
+          ctx.moveTo(eyeSpacing - 12 * scale, eyeY);
+          ctx.lineTo(eyeSpacing + 12 * scale, eyeY);
+          ctx.stroke();
+        }
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 2 * scale;
+        ctx.beginPath();
+        ctx.moveTo(0, -5 * scale);
+        ctx.lineTo(-5 * scale, 15 * scale);
+        ctx.lineTo(5 * scale, 15 * scale);
+        ctx.stroke();
+
+        const mouthY = 40 * scale;
+        const mouthWidth = 30 * scale;
+        const mouthOpenHeight = mouthOpen * 20 * scale;
+
+        ctx.fillStyle = '#c44569';
+        ctx.strokeStyle = '#c44569';
+        ctx.lineWidth = 3 * scale;
+
+        if (avatarConfig.expression === 'happy' || mouthOpen > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(-mouthWidth, mouthY);
+          ctx.quadraticCurveTo(0, mouthY + 20 * scale + mouthOpenHeight, mouthWidth, mouthY);
+          if (mouthOpen > 0.2) {
+            ctx.quadraticCurveTo(0, mouthY + mouthOpenHeight * 0.5, -mouthWidth, mouthY);
+            ctx.fill();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(-20 * scale, mouthY, 40 * scale, Math.min(10 * scale, mouthOpenHeight * 0.5));
+          } else {
+            ctx.stroke();
+          }
+        } else if (avatarConfig.expression === 'surprised') {
+          ctx.beginPath();
+          ctx.ellipse(0, mouthY + 10 * scale, 15 * scale, 20 * scale + mouthOpenHeight, 0, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(-mouthWidth, mouthY);
+          ctx.lineTo(mouthWidth, mouthY);
+          ctx.stroke();
+        }
+
+        if (avatarConfig.accessories.includes('glasses')) {
+          ctx.strokeStyle = '#333333';
+          ctx.lineWidth = 3 * scale;
+          ctx.beginPath();
+          ctx.roundRect(-eyeSpacing - 22 * scale, eyeY - 15 * scale, 44 * scale, 30 * scale, 5 * scale);
+          ctx.roundRect(eyeSpacing - 22 * scale, eyeY - 15 * scale, 44 * scale, 30 * scale, 5 * scale);
+          ctx.moveTo(-eyeSpacing + 22 * scale, eyeY);
+          ctx.lineTo(eyeSpacing - 22 * scale, eyeY);
+          ctx.stroke();
+        }
+
+        if (avatarConfig.accessories.includes('earrings')) {
+          ctx.fillStyle = '#FFD700';
+          ctx.beginPath();
+          ctx.arc(-75 * scale, 10 * scale, 8 * scale, 0, Math.PI * 2);
+          ctx.arc(75 * scale, 10 * scale, 8 * scale, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        if (avatarConfig.accessories.includes('hat')) {
+          ctx.fillStyle = '#2C3E50';
+          ctx.beginPath();
+          ctx.ellipse(0, -85 * scale, 90 * scale, 15 * scale, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillRect(-50 * scale, -140 * scale, 100 * scale, 60 * scale);
+        }
+
+        if (avatarConfig.accessories.includes('beard')) {
+          ctx.fillStyle = avatarConfig.hairColor;
+          ctx.beginPath();
+          ctx.moveTo(-50 * scale, 30 * scale);
+          ctx.quadraticCurveTo(-60 * scale, 80 * scale, 0, 100 * scale);
+          ctx.quadraticCurveTo(60 * scale, 80 * scale, 50 * scale, 30 * scale);
+          ctx.fill();
+        }
+
+        ctx.restore();
+      };
+
+      useEffect(() => {
+        if (!canvasRef.current) return;
+        const ctx = canvasRef.current.getContext('2d');
+        let animationId;
+        let time = 0;
+
+        const animate = () => {
+          time += 0.1;
+          const mouthOpen = isSpeaking ? (Math.sin(time * 8) + 1) / 2 * 0.8 : 0;
+          const blink = Math.random() > 0.995 ? 1 : 0;
+          
+          drawAvatar(ctx, canvasRef.current.width, canvasRef.current.height, mouthOpen, blink);
+          animationId = requestAnimationFrame(animate);
+        };
+
+        animate();
+        return () => cancelAnimationFrame(animationId);
+      }, [avatarConfig, isSpeaking]);
+
+      const speakScript = () => {
+        if (!script.trim() || !('speechSynthesis' in window)) return;
+        
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(script);
+        
+        utterance.onstart = () => setIsSpeaking(true);
+        utterance.onend = () => setIsSpeaking(false);
+
+        window.speechSynthesis.speak(utterance);
+      };
+
+      const startRecording = async () => {
+        if (!videoCanvasRef.current) return;
+        
+        const ctx = videoCanvasRef.current.getContext('2d');
+        chunksRef.current = [];
+        
+        const stream = videoCanvasRef.current.captureStream(30);
+        mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: 'video/webm' });
+        
+        mediaRecorderRef.current.ondataavailable = (e) => {
+          if (e.data.size > 0) chunksRef.current.push(e.data);
+        };
+        
+        mediaRecorderRef.current.onstop = () => {
+          const blob = new Blob(chunksRef.current, { type: 'video/webm' });
+          const url = URL.createObjectURL(blob);
+          setGeneratedVideos(prev => [...prev, { url, timestamp: new Date().toLocaleString() }]);
+        };
+
+        mediaRecorderRef.current.start();
+        setIsAnimating(true);
+
+        let time = 0;
+        const recordingDuration = Math.max(3000, script.length * 80);
+        const startTime = Date.now();
+
+        const animateRecording = () => {
+          time += 0.15;
+          const elapsed = Date.now() - startTime;
+          const mouthOpen = (Math.sin(time * 10) + 1) / 2 * 0.7;
+          const blink = Math.sin(time * 0.5) > 0.95 ? 1 : 0;
+
+          drawAvatar(ctx, videoCanvasRef.current.width, videoCanvasRef.current.height, mouthOpen, blink);
+
+          if (elapsed < recordingDuration) {
+            requestAnimationFrame(animateRecording);
+          } else {
+            mediaRecorderRef.current.stop();
+            setIsAnimating(false);
+          }
+        };
+
+        animateRecording();
+        speakScript();
+      };
+
+      const downloadVideo = (url, index) => {
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `avatar-video-${index + 1}.webm`;
+        a.click();
+      };
+
+      const ColorButton = ({ color, selected, onClick }) => (
+        <button
+          onClick={onClick}
+          className="w-8 h-8 rounded-full border-2 transition-transform hover:scale-110"
+          style={{ 
+            backgroundColor: color,
+            borderColor: selected ? '#fff' : 'transparent',
+            boxShadow: selected ? '0 0 0 2px #6366f1' : 'none'
+          }}
+        />
+      );
+
+      const OptionButton = ({ label, selected, onClick }) => (
+        <button
+          onClick={onClick}
+          className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+            selected 
+              ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30' 
+              : 'bg-white/10 text-gray-300 hover:bg-white/20'
+          }`}
+        >
+          {label}
+        </button>
+      );
+
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 text-white p-4 md:p-8">
+          <div className="max-w-6xl mx-auto">
+            <div className="text-center mb-8">
+              <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
+                Avatar Studio
+              </h1>
+              <p className="text-gray-400">Create • Animate • Export</p>
+            </div>
+
+            <div className="flex justify-center gap-2 mb-8">
+              {['create', 'record', 'videos'].map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab)}
+                  className={`px-6 py-3 rounded-xl font-medium transition-all ${
+                    activeTab === tab
+                      ? 'bg-indigo-500 text-white shadow-lg shadow-indigo-500/30'
+                      : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                  }`}
+                >
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                  {tab === 'videos' && generatedVideos.length > 0 && (
+                    <span className="ml-2 px-2 py-0.5 bg-pink-500 rounded-full text-xs">
+                      {generatedVideos.length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-8">
+              <div className="flex flex-col items-center">
+                <div className={`rounded-2xl overflow-hidden glow ${isAnimating ? 'recording border-4 border-indigo-500' : ''}`}>
+                  <canvas ref={canvasRef} width={400} height={400} className="bg-slate-800" />
+                </div>
+                <canvas ref={videoCanvasRef} width={400} height={400} className="hidden" />
+                
+                {activeTab === 'record' && (
+                  <div className="mt-6 w-full max-w-md">
+                    <textarea
+                      value={script}
+                      onChange={(e) => setScript(e.target.value)}
+                      placeholder="Enter what you want your avatar to say..."
+                      className="w-full h-32 bg-white/5 border border-white/10 rounded-xl p-4 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 resize-none mono text-sm"
+                    />
+                    <div className="flex gap-3 mt-4">
+                      <button
+                        onClick={speakScript}
+                        disabled={!script.trim() || isAnimating}
+                        className="flex-1 py-3 bg-white/10 hover:bg-white/20 rounded-xl font-medium transition-all disabled:opacity-50"
+                      >
+                        🔊 Preview
+                      </button>
+                      <button
+                        onClick={startRecording}
+                        disabled={!script.trim() || isAnimating}
+                        className="flex-1 py-3 bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600 rounded-xl font-medium transition-all disabled:opacity-50 shadow-lg shadow-indigo-500/30"
+                      >
+                        {isAnimating ? '⏺ Recording...' : '🎬 Record Video'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 border border-white/10">
+                {activeTab === 'create' && (
+                  <div className="space-y-6">
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Face Shape</label>
+                      <div className="flex flex-wrap gap-2">
+                        {faceShapes.map(shape => (
+                          <OptionButton
+                            key={shape}
+                            label={shape}
+                            selected={avatarConfig.face === shape}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, face: shape }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Skin Tone</label>
+                      <div className="flex flex-wrap gap-2">
+                        {skinTones.map(color => (
+                          <ColorButton
+                            key={color}
+                            color={color}
+                            selected={avatarConfig.skinTone === color}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, skinTone: color }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Hair Style</label>
+                      <div className="flex flex-wrap gap-2">
+                        {hairStyles.map(style => (
+                          <OptionButton
+                            key={style}
+                            label={style}
+                            selected={avatarConfig.hairStyle === style}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, hairStyle: style }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Hair Color</label>
+                      <div className="flex flex-wrap gap-2">
+                        {hairColors.map(color => (
+                          <ColorButton
+                            key={color}
+                            color={color}
+                            selected={avatarConfig.hairColor === color}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, hairColor: color }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Eye Color</label>
+                      <div className="flex flex-wrap gap-2">
+                        {eyeColors.map(color => (
+                          <ColorButton
+                            key={color}
+                            color={color}
+                            selected={avatarConfig.eyeColor === color}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, eyeColor: color }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Expression</label>
+                      <div className="flex flex-wrap gap-2">
+                        {expressions.map(expr => (
+                          <OptionButton
+                            key={expr}
+                            label={expr}
+                            selected={avatarConfig.expression === expr}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, expression: expr }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Accessories</label>
+                      <div className="flex flex-wrap gap-2">
+                        {accessoryOptions.map(acc => (
+                          <OptionButton
+                            key={acc}
+                            label={acc}
+                            selected={avatarConfig.accessories.includes(acc)}
+                            onClick={() => setAvatarConfig(prev => ({
+                              ...prev,
+                              accessories: prev.accessories.includes(acc)
+                                ? prev.accessories.filter(a => a !== acc)
+                                : [...prev.accessories, acc]
+                            }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-sm text-gray-400 mb-3 block">Background</label>
+                      <div className="flex flex-wrap gap-2">
+                        {backgrounds.map(color => (
+                          <ColorButton
+                            key={color}
+                            color={color}
+                            selected={avatarConfig.background === color}
+                            onClick={() => setAvatarConfig(prev => ({ ...prev, background: color }))}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'record' && (
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold mb-4">Recording Tips</h3>
+                    <div className="space-y-3 text-gray-300">
+                      <p className="flex items-start gap-3">
+                        <span className="text-2xl">1️⃣</span>
+                        <span>Design your avatar in the Create tab first</span>
+                      </p>
+                      <p className="flex items-start gap-3">
+                        <span className="text-2xl">2️⃣</span>
+                        <span>Type your script in the text box below</span>
+                      </p>
+                      <p className="flex items-start gap-3">
+                        <span className="text-2xl">3️⃣</span>
+                        <span>Click Preview to hear the speech</span>
+                      </p>
+                      <p className="flex items-start gap-3">
+                        <span className="text-2xl">4️⃣</span>
+                        <span>Click Record to create your video</span>
+                      </p>
+                      <p className="flex items-start gap-3">
+                        <span className="text-2xl">5️⃣</span>
+                        <span>Download from the Videos tab!</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'videos' && (
+                  <div className="space-y-4">
+                    <h3 className="text-xl font-semibold mb-4">Your Videos</h3>
+                    {generatedVideos.length === 0 ? (
+                      <p className="text-gray-400 text-center py-8">
+                        No videos yet. Record one in the Record tab!
+                      </p>
+                    ) : (
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {generatedVideos.map((video, index) => (
+                          <div key={index} className="bg-white/5 rounded-xl p-4 border border-white/10">
+                            <video src={video.url} controls className="w-full rounded-lg mb-3" />
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-400 mono">{video.timestamp}</span>
+                              <button
+                                onClick={() => downloadVideo(video.url, index)}
+                                className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 rounded-lg text-sm font-medium transition-all"
+                              >
+                                ⬇️ Download
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<AvatarStudio />, document.getElementById('root'));
+  </script>
+</body>
+</html>
